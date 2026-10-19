@@ -1,4 +1,5 @@
-export const VERSION = 2;
+import {validateBusiness} from './business-schema.mjs';
+export const VERSION = 3;
 export const TYPES = {capital:'现金投入', opening:'初始商品投入', purchase:'采购入库', sale:'销售出库', loss:'库存报损', expense:'经营费用', collect:'收回应收款', repay:'支付应付款', withdraw:'业主提款'};
 export const today = () => new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
 export const uid = () => crypto.randomUUID();
@@ -6,11 +7,11 @@ export const money = cents => ((cents||0)/100).toLocaleString('zh-CN',{minimumFr
 export const amount = value => { const n=Number(value); if(!Number.isFinite(n)||n<0||n>1e8||Math.abs(n*100-Math.round(n*100))>1e-5) throw Error('金额须为不超过一亿元的非负数，最多两位小数'); return Math.round(n*100); };
 const integer = (n,min=0) => Number.isSafeInteger(n)&&n>=min&&n<=1e10;
 export function validDate(s){ if(typeof s!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false; const d=new Date(s+'T00:00:00Z'); return Number.isFinite(+d)&&d.toISOString().slice(0,10)===s&&s>='2000-01-01'&&s<='2100-12-31'; }
-export function blank(){ return {version:VERSION,revision:0,store:'我的门店',products:[],events:[],chat:[],imports:[],actions:[],coverage:null}; }
+export function blank(){ return {version:VERSION,revision:0,store:'我的门店',products:[],events:[],chat:[],imports:[],actions:[],coverage:null,trials:[],campaigns:[],serviceRecords:[],feedback:[],modelUsage:[],rates:{input:null,output:null}}; }
 export function migrate(input){
-  if(input?.version!==1){const s=validate(input);if(s.actions.some(a=>a.status==='reviewed'&&a.review?.outcome==='待观察')){const next=structuredClone(s);for(const a of next.actions)if(a.status==='reviewed'&&a.review?.outcome==='待观察')a.status='executed';return next;}return s;}
-  const s=structuredClone(input);s.version=VERSION;s.imports=[];s.actions=[];s.coverage=null;
-  s.products=s.products.map(p=>({...p,leadDays:2,safetyDays:3,packSize:1}));return validate(s);
+  if(input?.version===1){const s=structuredClone(input);s.version=2;s.imports=[];s.actions=[];s.coverage=null;s.products=s.products.map(p=>({...p,leadDays:2,safetyDays:3,packSize:1}));return migrate(s);}
+  if(input?.version===2){const s={...structuredClone(input),version:VERSION,trials:[],campaigns:[],serviceRecords:[],feedback:[],modelUsage:[],rates:{input:null,output:null}};return migrate(s);}
+  const s=validate(input);if(s.actions.some(a=>a.status==='reviewed'&&a.review?.outcome==='待观察')){const next=structuredClone(s);for(const a of next.actions)if(a.status==='reviewed'&&a.review?.outcome==='待观察')a.status='executed';return next;}return s;
 }
 export function addProduct(state,input){
   const p={id:input.id||uid(),sku:String(input.sku||'').trim(),name:String(input.name||'').trim(),unit:String(input.unit||'件').trim(),category:String(input.category||'其他').trim(),price:input.price,cost:input.cost,minStock:Number(input.minStock??5),leadDays:Number(input.leadDays??2),safetyDays:Number(input.safetyDays??3),packSize:Number(input.packSize??1),active:true};
@@ -64,6 +65,8 @@ export function addEvent(state,input){
   const next=structuredClone(state);
   const event={id:uid(),seq:Math.max(0,...state.events.map(e=>e.seq))+1,type:input.type,date:input.date,amount:input.amount??0,qty:Number(input.qty||0),productId:input.productId||null,payment:input.payment||'cash',note:String(input.note||'').trim().slice(0,200)};
   for(const k of ['externalRef','importBatchId','actionId'])if(input[k])event[k]=input[k];
+  for(const k of ['orderId','orderTime'])if(String(input[k]||'').trim())event[k]=String(input[k]).trim();
+  if(event.orderId||event.orderTime){if(event.type!=='sale'||!event.orderId||event.orderId.length>80||event.orderTime&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(event.orderTime))throw Error('订单编号或成交时间无效，时间格式为 HH:mm');const rows=state.events.filter(e=>e.type==='sale'&&e.date===event.date&&e.orderId===event.orderId);if(rows.some(e=>e.payment!==event.payment||e.orderTime&&event.orderTime&&e.orderTime!==event.orderTime))throw Error('同一订单的日期内结算方式及成交时间应一致');}
   if(event.productId&&!state.products.find(p=>p.id===event.productId&&p.active)) throw Error('商品已停用或不存在');
   if(event.type==='opening'&&state.events.some(e=>e.productId===event.productId)) throw Error('该商品已有流水，后续增加库存请使用采购入库');
   if(event.type!=='loss'&&!integer(event.amount,1)) throw Error('金额必须大于零');
@@ -96,7 +99,11 @@ export function snapshot(state,start,end){
 export function localAnswer(question,data){
   const q=question.trim(),p=data.profit,b=data.balance,f=data.flow,prefix=`统计范围：${data.period.start} 至 ${data.period.end}（${data.dataMode}）。\n`;
   if(/税|预测|天气|客流|会员|明天|下周|下个月|去年/.test(q))return prefix+'当前记录不能支持这个问题。此版尚无税务、客流、会员、天气或预测数据；你可以查询当前期间的销售、利润、库存、应收应付和现金流。';
+  if(/订单|客单|连带|组合|时段/.test(q)&&data.orderSummary){const o=data.orderSummary;return prefix+(o.count?`已记录订单 ${o.count} 单，已记录订单客单 ¥${money(o.average)}。有编号销售明细 ${o.linkedLines} / ${o.totalLines} 条；未编号明细不进入订单指标。订单数不等于到店人数。更多时段和组合请查看“订单与商品分析”。`:'本期没有提供订单编号的销售明细，不能计算订单数与客单。请在记销售或导入时补充编号。');}
+  if(/服务|工时|模型费用/.test(q)&&data.service)return prefix+`团队服务 ${data.service.minutes} 分钟，已记录费用 ¥${money(data.service.cost)}；模型已知估算费用 ¥${(data.model.costMicros/1e6).toFixed(4)}，另有 ${data.model.unknownCost} 次调用费用待核实。这些团队投入不自动计入门店财务。`;
+  if(/试销|选品/.test(q)&&data.trials)return prefix+`已登记 ${data.trials.length} 条候选或试销。${data.trials.map(t=>t.name+'（'+({planned:'待建档',running:'试销中',closed:'已结束'}[t.status])+'）').join('；')}。7/14/30 天结果请在“选品与试销”核对完整记录和周期，不推测未知新品表现。`;
   if(/行动|执行|复盘/.test(q)&&data.actions)return prefix+`目前有 ${data.actions.pending} 项已采纳待执行、${data.actions.executed} 项已执行待复盘、${data.actions.reviewed} 项已复盘。请在“经营建议与复盘”查看原始依据和实际执行情况；我不会通过聊天自动修改库存。`;
+  if(/积压|滞销|低销量/.test(q)&&data.inventoryAnalysis){const list=data.inventoryAnalysis.filter(p=>p.slow);return prefix+(list.length?list.map(p=>`${p.name}：库存 ${p.qty} ${p.unit}，完整观察 ${p.days} 天，销量 ${p.sold}；${p.coverageDays===null?'零销量，需核对陈列与商品状态':'按已录速度预计可售 '+p.coverageDays.toFixed(1)+' 天'}。`).join('\n')+'\n这是低销量观察，不能用预计可售天数当作实际库龄。':'当前没有达到低销量观察条件的商品。此规则需要至少 30 天完整销售记录；周期或数据不足时不能认定为滞销。');}
   if(/补货/.test(q)&&data.inventoryAnalysis){const list=data.inventoryAnalysis.filter(p=>p.restock);return prefix+(list.length?list.map(p=>`${p.name}：库存 ${p.qty} ${p.unit}，${p.suggestedQty===null?'完整记录不足或无可用日均销量，补货数量需人工核对':`参考补货 ${p.suggestedQty} ${p.unit}（按 ${p.days} 天完整记录、供货天数和包装数计算）`}。`).join('\n')+'\n这是历史速度与阈值形成的参考，未计未知在途采购；请在下单前核对。':'没有商品触及当前补货规则。');}
   if(/库存|补货|缺货|商品|卖得|销量|好卖/.test(q)){
     const product=data.products.find(p=>q.includes(p.name));
@@ -126,5 +133,7 @@ export function validate(state){
   const actionIds=new Set();
   for(const a of state.actions){if(!a||typeof a.id!=='string'||actionIds.has(a.id)||!productIds.has(a.productId)||!['restock','slow'].includes(a.kind)||!['accepted','executed','reviewed','rejected'].includes(a.status)||!validDate(a.asof)||typeof a.note!=='string'||a.note.length>1000||!a.facts||!integer(a.facts.qty)||!integer(a.facts.value))throw Error('行动记录无效');actionIds.add(a.id);if(a.eventId&&!eventIds.has(a.eventId))throw Error('行动关联的执行流水缺失');if(['executed','reviewed'].includes(a.status)&&(!validDate(a.executedAt)||a.executedAt>today()))throw Error('行动执行日期无效');if(a.review&&(!validDate(a.review.date)||a.review.date<a.executedAt||a.review.date>today()||!['有帮助','无明显变化','有问题','待观察'].includes(a.review.outcome)||typeof a.review.note!=='string'||a.review.note.length>1000))throw Error('复盘记录无效');}
   for(const a of state.actions){if(a.status==='reviewed'&&!a.review)throw Error('已复盘行动缺少观察记录');if(a.reviews!==undefined&&(!Array.isArray(a.reviews)||a.reviews.length>100||a.reviews.some(r=>!r||!validDate(r.date)||r.date<a.executedAt||r.date>today()||!['有帮助','无明显变化','有问题','待观察'].includes(r.outcome)||typeof r.note!=='string'||r.note.length>1000)))throw Error('观察历史无效');}
-  ledger(state);return state;
+  for(const e of state.events)if(e.orderId||e.orderTime){if(e.type!=='sale'||!e.orderId||typeof e.orderId!=='string'||e.orderId.length>80||e.orderTime&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(e.orderTime))throw Error('订单明细无效');}
+  const orders=new Map();for(const e of state.events.filter(e=>e.orderId)){const key=e.date+'|'+e.orderId,previous=orders.get(key);if(previous&&(previous.payment!==e.payment||previous.time&&e.orderTime&&previous.time!==e.orderTime))throw Error('同一订单的结算方式与成交时间不一致');orders.set(key,{payment:e.payment,time:e.orderTime||previous?.time||''});}
+  validateBusiness(state,validDate,today());ledger(state);return state;
 }

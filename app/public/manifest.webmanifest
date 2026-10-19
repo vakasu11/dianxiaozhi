@@ -1,0 +1,10 @@
+{
+  "id":"./", "name":"店小智门店工作台", "short_name":"店小智",
+  "description":"商品与库存、经营流水、订单分析与执行复盘",
+  "lang":"zh-CN", "start_url":"./#dashboard", "scope":"./",
+  "display":"standalone", "background_color":"#f6f7f9", "theme_color":"#0f766e",
+  "icons":[
+    {"src":"icons/store-192.png","sizes":"192x192","type":"image/png","purpose":"any maskable"},
+    {"src":"icons/store-512.png","sizes":"512x512","type":"image/png","purpose":"any maskable"}
+  ]
+}

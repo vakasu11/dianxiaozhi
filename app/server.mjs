@@ -28,14 +28,14 @@ export function createServer(config=process.env){
         if(!response.ok)return json(res,502,{error:'模型服务返回错误，请检查服务端配置或余额'});
         const data=await response.json(),answer=data.choices?.[0]?.message?.content;
         if(typeof answer!=='string'||!answer.trim())return json(res,502,{error:'模型未返回可用文本'});
-        return json(res,200,{answer:answer.slice(0,12000)});
+        const token=n=>Number.isSafeInteger(n)&&n>=0?n:null;return json(res,200,{answer:answer.slice(0,12000),usage:{inputTokens:token(data.usage?.prompt_tokens),outputTokens:token(data.usage?.completion_tokens)}});
       }catch{return json(res,502,{error:'模型连接失败或超时，可继续使用本地数据问答'});}finally{active.delete(ip);}
     }
     if(req.method!=='GET'&&req.method!=='HEAD')return json(res,405,{error:'方法不支持'});
     try{
       const path=resolve(root,'.'+decodeURIComponent(url.pathname==='/'?'/index.html':url.pathname));
       if(!path.startsWith(root.endsWith(sep)?root:root+sep))return json(res,403,{error:'路径不允许'});
-      const content=await readFile(path),types={'.html':'text/html;charset=utf-8','.css':'text/css;charset=utf-8','.mjs':'text/javascript;charset=utf-8','.js':'text/javascript;charset=utf-8','.svg':'image/svg+xml','.ico':'image/x-icon'};
+      const content=await readFile(path),types={'.html':'text/html;charset=utf-8','.css':'text/css;charset=utf-8','.mjs':'text/javascript;charset=utf-8','.js':'text/javascript;charset=utf-8','.svg':'image/svg+xml','.ico':'image/x-icon','.png':'image/png','.webmanifest':'application/manifest+json'};
       res.writeHead(200,{'Content-Type':types[extname(path)]||'application/octet-stream','Cache-Control':'no-cache'});res.end(req.method==='HEAD'?undefined:content);
     }catch{return json(res,404,{error:'页面不存在'});}
   });

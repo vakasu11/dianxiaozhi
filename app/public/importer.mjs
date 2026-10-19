@@ -1,7 +1,7 @@
 import {addProduct,addEvent,validate,uid,today,amount,TYPES} from './domain.mjs';
 export const FIELDS={
   products:[['sku','商品编码',true],['name','商品名称',true],['unit','单位',true],['category','分类'],['price','售价（元）',true],['cost','进价（元）',true],['minStock','预警数量'],['leadDays','供货天数'],['safetyDays','安全天数'],['packSize','补货包装数']],
-  events:[['externalId','外部流水号',true],['date','日期',true],['type','业务类型',true],['sku','商品编码'],['qty','数量'],['amount','总金额（元）'],['payment','结算方式'],['note','备注']]
+  events:[['externalId','外部流水号',true],['date','日期',true],['type','业务类型',true],['sku','商品编码'],['qty','数量'],['amount','总金额（元）'],['payment','结算方式'],['note','备注'],['orderId','订单编号'],['orderTime','成交时间']]
 };
 const aliases={sku:['编码','sku'],name:['名称','品名'],unit:['计量单位'],price:['售价','单价','销售单价'],cost:['进价','参考进货单价'],amount:['金额','总金额'],externalId:['流水号','外部单号'],date:['业务日期'],type:['业务','类型']};
 const clean=s=>String(s??'').trim();
@@ -24,7 +24,7 @@ export function suggestMapping(kind,headers){return Object.fromEntries(FIELDS[ki
 export function csvEncode(rows){return '\ufeff'+rows.map(r=>r.map(v=>'"'+String(v??'').replace(/^[\s]*[=+@-]/,"'$&").replaceAll('"','""')+'"').join(',')).join('\r\n');}
 export function template(kind,date=today()){
   if(kind==='products')return [FIELDS.products.map(x=>x[1]),['SAMPLE001','示例矿泉水','瓶','饮料','2.00','1.00','24','2','3','24']];
-  return [FIELDS.events.map(x=>x[1]),['EXT-001',date,'初始商品投入','SAMPLE001','100','100.00','','初始商品投入；总金额为库存成本'],['EXT-002',date,'销售出库','SAMPLE001','2','4.00','现结','删除示例并替换为实际业务']];
+  return [FIELDS.events.map(x=>x[1]),['EXT-001',date,'初始商品投入','SAMPLE001','100','100.00','','初始商品投入；总金额为库存成本','',''],['EXT-002',date,'销售出库','SAMPLE001','2','4.00','现结','替换为实际业务','R001','10:30']];
 }
 function rowNumber(value,label,min=0,max=1e10){const s=clean(value);if(!/^\d+$/.test(s)||!Number.isSafeInteger(+s)||+s<min||+s>max)throw Error(`${label}应为 ${min}–${max} 的整数`);return +s;}
 const defaultNumber=(value,label,fallback,min=0,max=1e10)=>clean(value)===''?fallback:rowNumber(value,label,min,max);
@@ -54,8 +54,8 @@ export async function prepareImport(state,{kind,source='手工表格',name='粘�
       if(isStock&&(!product||!product.active))throw Error('商品编码不存在或商品已停用，请先导入商品档案');
       let payment='cash';if(['sale','purchase'].includes(type)){if(['现结','现金','cash'].includes(v.payment))payment='cash';else if(['赊账','赊销','赊购','credit'].includes(v.payment))payment='credit';else throw Error('采购/销售的结算方式应填写现结或赊账');}
       if(v.note.length>200)throw Error('备注最多 200 字');if(type==='loss'&&v.amount&&amount(v.amount)!==0)throw Error('报损金额请留空或填 0，由库存成本计算');
-      const incoming={type,date:dateValue(v.date),productId:isStock?product.id:null,qty:isStock?rowNumber(v.qty,'数量',1):0,amount:type==='loss'?0:requiredMoney(v.amount,'总金额'),payment,note:v.note,externalRef,importBatchId:batchId};
-      if(refs.has(externalRef)){const old=refs.get(externalRef);if(!['type','date','productId','qty','amount','payment','note'].every(k=>old[k]===incoming[k]))throw Error('此流水号已存在但业务内容不同，请核对来源和原始记录');rows.push({...row,status:'duplicate',message:'同一来源且内容相同的流水，跳过'});continue;}
+      const incoming={type,date:dateValue(v.date),productId:isStock?product.id:null,qty:isStock?rowNumber(v.qty,'数量',1):0,amount:type==='loss'?0:requiredMoney(v.amount,'总金额'),payment,note:v.note,externalRef,importBatchId:batchId,orderId:v.orderId||'',orderTime:v.orderTime||''};
+      if(refs.has(externalRef)){const old=refs.get(externalRef);if(!['type','date','productId','qty','amount','payment','note','orderId','orderTime'].every(k=>(old[k]??'')===(incoming[k]??'')))throw Error('此流水号已存在但业务内容不同，请核对来源和原始记录');rows.push({...row,status:'duplicate',message:'同一来源且内容相同的流水，跳过'});continue;}
       const n=addEvent(next,incoming);next=n;refs.set(externalRef,next.events.at(-1));eventIds.push(next.events.at(-1).id);rows.push({...row,status:'ready',message:TYPES[type]});
     }
   }catch(e){rows.push({...row,status:'error',message:e.message});}}
