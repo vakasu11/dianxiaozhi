@@ -50,6 +50,7 @@ export async function prepareImport(state,{kind,source='手工表格',name='粘�
       if(!v.externalId||v.externalId.length>100)throw Error('外部流水号必填，最多 100 字；每笔必须唯一');
       const externalRef=JSON.stringify([source,v.externalId]);
       const type=Object.keys(TYPES).find(k=>k===v.type||TYPES[k]===v.type);if(!type)throw Error('业务类型不支持');
+      if(type==='stocktake')throw Error('盘点须在“库存盘点”页面预览确认，暂不支持导入');
       const isStock=['opening','purchase','sale','loss'].includes(type),product=next.products.find(p=>p.sku.toLowerCase()===v.sku.toLowerCase());
       if(isStock&&(!product||!product.active))throw Error('商品编码不存在或商品已停用，请先导入商品档案');
       let payment='cash';if(['sale','purchase'].includes(type)){if(['现结','现金','cash'].includes(v.payment))payment='cash';else if(['赊账','赊销','赊购','credit'].includes(v.payment))payment='credit';else throw Error('采购/销售的结算方式应填写现结或赊账');}

@@ -1,6 +1,6 @@
 import {validateBusiness} from './business-schema.mjs';
-export const VERSION = 3;
-export const TYPES = {capital:'现金投入', opening:'初始商品投入', purchase:'采购入库', sale:'销售出库', loss:'库存报损', expense:'经营费用', collect:'收回应收款', repay:'支付应付款', withdraw:'业主提款'};
+export const VERSION = 4;
+export const TYPES = {capital:'现金投入', opening:'初始商品投入', purchase:'采购入库', sale:'销售出库', loss:'库存报损', stocktake:'库存盘点', expense:'经营费用', collect:'收回应收款', repay:'支付应付款', withdraw:'业主提款'};
 export const today = () => new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
 export const uid = () => crypto.randomUUID();
 export const money = cents => ((cents||0)/100).toLocaleString('zh-CN',{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -10,7 +10,8 @@ export function validDate(s){ if(typeof s!=='string'||!/^\d{4}-\d{2}-\d{2}$/.tes
 export function blank(){ return {version:VERSION,revision:0,store:'我的门店',products:[],events:[],chat:[],imports:[],actions:[],coverage:null,trials:[],campaigns:[],serviceRecords:[],feedback:[],modelUsage:[],rates:{input:null,output:null}}; }
 export function migrate(input){
   if(input?.version===1){const s=structuredClone(input);s.version=2;s.imports=[];s.actions=[];s.coverage=null;s.products=s.products.map(p=>({...p,leadDays:2,safetyDays:3,packSize:1}));return migrate(s);}
-  if(input?.version===2){const s={...structuredClone(input),version:VERSION,trials:[],campaigns:[],serviceRecords:[],feedback:[],modelUsage:[],rates:{input:null,output:null}};return migrate(s);}
+  if(input?.version===2){const s={...structuredClone(input),version:3,trials:[],campaigns:[],serviceRecords:[],feedback:[],modelUsage:[],rates:{input:null,output:null}};return migrate(s);}
+  if(input?.version===3)return migrate({...structuredClone(input),version:VERSION});
   const s=validate(input);if(s.actions.some(a=>a.status==='reviewed'&&a.review?.outcome==='待观察')){const next=structuredClone(s);for(const a of next.actions)if(a.status==='reviewed'&&a.review?.outcome==='待观察')a.status='executed';return next;}return s;
 }
 export function addProduct(state,input){
@@ -21,13 +22,35 @@ export function addProduct(state,input){
   if(!integer(p.leadDays)||p.leadDays>365||!integer(p.safetyDays)||p.safetyDays>365||!integer(p.packSize,1)||p.packSize>100000)throw Error('供货/安全天数应为 0–365 的整数，补货包装数为 1–100000');
   const next=structuredClone(state); next.products.push(p); return next;
 }
+function countDifference(stock,qty,referenceCost){
+  if(!integer(qty))throw Error('实盘数量须为非负整数');
+  if(!integer(referenceCost))throw Error('盘点估值依据无效');
+  const difference=qty-stock.qty;
+  const rounded=(value,n,denominator)=>Number((BigInt(value)*BigInt(n)+BigInt(denominator)/2n)/BigInt(denominator));
+  const valueDelta=difference<0?(qty===0?-stock.value:-rounded(stock.value,-difference,stock.qty)):difference>0?(stock.qty?rounded(stock.value,difference,stock.qty):difference*referenceCost):0;
+  if(!integer(Math.abs(valueDelta))||!integer(stock.value+valueDelta))throw Error('盘点金额过大');
+  return {qty,difference,valueDelta,gain:Math.max(0,valueDelta),loss:Math.max(0,-valueDelta)};
+}
+export function previewStocktake(state,input){
+  if(!validDate(input.date)||input.date>today())throw Error('请填写有效日期，不能录入未来业务');
+  if(state.events.some(e=>e.date>input.date))throw Error('请按日期顺序盘点，不能在已有流水之前调整库存');
+  const product=state.products.find(p=>p.id===input.productId&&p.active);if(!product)throw Error('请选择正常经营的商品');
+  const stock=ledger(state).stock[product.id],referenceCost=stock.qty?0:product.cost;
+  return {revision:state.revision,date:input.date,productId:product.id,bookQty:stock.qty,bookValue:stock.value,referenceCost,costBasis:stock.qty?'当前库存平均成本':'商品参考进价',...countDifference(stock,input.qty,referenceCost)};
+}
+export function confirmStocktake(state,preview,note){
+  if(!preview||state.revision!==preview.revision)throw Error('预览后数据已改变，请重新核对盘点差异');
+  const current=previewStocktake(state,preview);
+  if(['bookQty','bookValue','referenceCost','qty','gain','loss'].some(k=>current[k]!==preview[k]))throw Error('盘点依据已改变，请重新预览');
+  return addEvent(state,{type:'stocktake',date:preview.date,productId:preview.productId,qty:preview.qty,note});
+}
 export function ledger(state,until='2100-12-31'){
   const stock=Object.fromEntries(state.products.map(p=>[p.id,{qty:0,value:0}]));
-  const b={cash:0,inventory:0,receivable:0,payable:0,capital:0,revenue:0,cogs:0,expense:0,loss:0};
+  const b={cash:0,inventory:0,receivable:0,payable:0,capital:0,revenue:0,cogs:0,expense:0,loss:0,gain:0};
   const rows=[];
   for(const e of [...state.events].sort((a,b)=>a.date.localeCompare(b.date)||a.seq-b.seq)){
     if(e.date>until) continue;
-    if(!validDate(e.date)||!Object.hasOwn(TYPES,e.type)||!integer(e.amount??0,e.type==='loss'?0:1)||!integer(e.seq,1)) throw Error('流水格式错误');
+    if(!validDate(e.date)||!Object.hasOwn(TYPES,e.type)||!integer(e.amount??0,['loss','stocktake'].includes(e.type)?0:1)||!integer(e.seq,1)) throw Error('流水格式错误');
     const delta=Object.fromEntries(Object.keys(b).map(k=>[k,0])); const s=stock[e.productId]; let cashGroup=null;
     if(['opening','purchase','sale','loss'].includes(e.type)&&(!s||!integer(e.qty,1))) throw Error('商品或数量无效');
     const cash=e.payment!=='credit';
@@ -46,6 +69,12 @@ export function ledger(state,until='2100-12-31'){
         else post('loss',cost);
         break;
       }
+      case 'stocktake': {
+        if(!s||!integer(e.bookQty)||!integer(e.bookValue)||e.bookQty!==s.qty||e.bookValue!==s.value||typeof e.note!=='string'||!e.note.trim()||e.note.length>200)throw Error('盘点账面依据或原因无效');
+        const change=countDifference(s,e.qty,e.referenceCost);
+        if(e.amount!==change.gain)throw Error('盘点估值与数量差异不一致');
+        s.qty=e.qty;s.value+=change.valueDelta;post('inventory',change.valueDelta);post('gain',change.gain);post('loss',change.loss);break;
+      }
       case 'expense': post('expense',e.amount);post('cash',-e.amount);cashGroup='operating';break;
       case 'collect': if(e.amount>b.receivable) throw Error('收款金额超过应收余额');post('receivable',-e.amount);post('cash',e.amount);cashGroup='operating';break;
       case 'repay': if(e.amount>b.payable) throw Error('付款金额超过应付余额');post('payable',-e.amount);post('cash',-e.amount);cashGroup='operating';break;
@@ -58,6 +87,7 @@ export function ledger(state,until='2100-12-31'){
   return {balances:b,stock,rows};
 }
 export function addEvent(state,input){
+  if(input.type==='stocktake'&&!integer(input.qty))throw Error('实盘数量须为非负整数');
   if(!validDate(input.date)||input.date>today()) throw Error('请填写有效日期，不能录入未来业务');
   const latest=state.events.reduce((d,e)=>e.date>d?e.date:d,'2000-01-01');
   if(input.date<latest) throw Error(`请按日期顺序录入，最近一笔日期为 ${latest}；补录历史数据请先撤销后续流水`);
@@ -68,27 +98,31 @@ export function addEvent(state,input){
   for(const k of ['orderId','orderTime'])if(String(input[k]||'').trim())event[k]=String(input[k]).trim();
   if(event.orderId||event.orderTime){if(event.type!=='sale'||!event.orderId||event.orderId.length>80||event.orderTime&&!/^([01]\d|2[0-3]):[0-5]\d$/.test(event.orderTime))throw Error('订单编号或成交时间无效，时间格式为 HH:mm');const rows=state.events.filter(e=>e.type==='sale'&&e.date===event.date&&e.orderId===event.orderId);if(rows.some(e=>e.payment!==event.payment||e.orderTime&&event.orderTime&&e.orderTime!==event.orderTime))throw Error('同一订单的日期内结算方式及成交时间应一致');}
   if(event.productId&&!state.products.find(p=>p.id===event.productId&&p.active)) throw Error('商品已停用或不存在');
+  if(event.type==='stocktake'){
+    if(!event.note)throw Error('请填写盘点原因或核对说明');
+    const p=previewStocktake(state,event);Object.assign(event,{bookQty:p.bookQty,bookValue:p.bookValue,referenceCost:p.referenceCost,amount:p.gain});
+  }
   if(event.type==='opening'&&state.events.some(e=>e.productId===event.productId)) throw Error('该商品已有流水，后续增加库存请使用采购入库');
-  if(event.type!=='loss'&&!integer(event.amount,1)) throw Error('金额必须大于零');
+  if(!['loss','stocktake'].includes(event.type)&&!integer(event.amount,1)) throw Error('金额必须大于零');
   next.events.push(event);ledger(next);return next;
 }
 export function reports(state,start,end){
   if(!validDate(start)||!validDate(end)||start>end) throw Error('请选择有效的起止日期');
   const l=ledger(state,end),before=l.rows.filter(e=>e.date<start),period=l.rows.filter(e=>e.date>=start);
   const sum=(rows,key)=>rows.reduce((s,e)=>s+e.delta[key],0);
-  const revenue=sum(period,'revenue'),cogs=sum(period,'cogs'),expense=sum(period,'expense'),loss=sum(period,'loss');
-  const profit=revenue-cogs-expense-loss,b=l.balances,retained=b.revenue-b.cogs-b.expense-b.loss;
+  const revenue=sum(period,'revenue'),cogs=sum(period,'cogs'),expense=sum(period,'expense'),loss=sum(period,'loss'),gain=sum(period,'gain');
+  const profit=revenue-cogs-expense-loss+gain,b=l.balances,retained=b.revenue-b.cogs-b.expense-b.loss+b.gain;
   const assets=b.cash+b.inventory+b.receivable, equity=b.capital+retained;
   const flow={opening:sum(before,'cash'),operatingIn:0,operatingOut:0,financingIn:0,financingOut:0,investing:0,closing:b.cash};
   for(const e of period){ const n=e.delta.cash; if(e.cashGroup==='operating') flow[n>=0?'operatingIn':'operatingOut']+=Math.abs(n); if(e.cashGroup==='financing') flow[n>=0?'financingIn':'financingOut']+=Math.abs(n); }
   flow.operating=flow.operatingIn-flow.operatingOut;flow.financing=flow.financingIn-flow.financingOut;flow.net=flow.operating+flow.financing;
-  return {start,end,ledger:l,period,profit:{revenue,cogs,gross:revenue-cogs,expense,loss,total:profit},balance:{...b,retained,assets,equity,total:b.payable+equity,difference:assets-b.payable-equity},flow,units:period.filter(e=>e.type==='sale').reduce((n,e)=>n+e.qty,0)};
+  return {start,end,ledger:l,period,profit:{revenue,cogs,gross:revenue-cogs,expense,loss,gain,total:profit},balance:{...b,retained,assets,equity,total:b.payable+equity,difference:assets-b.payable-equity},flow,units:period.filter(e=>e.type==='sale').reduce((n,e)=>n+e.qty,0)};
 }
 export function stockList(state,end=today()){
   const l=ledger(state,end);return state.products.map(p=>({...p,...l.stock[p.id],low:p.active&&l.stock[p.id].qty<=p.minStock}));
 }
 export function reportRows(r,tab){
-  if(tab==='profit') return [['营业收入',r.profit.revenue],['减：销售成本（移动加权平均）',r.profit.cogs],['毛利',r.profit.gross],['减：经营费用',r.profit.expense],['减：库存报损',r.profit.loss],['本期利润（未计税费及折旧）',r.profit.total]];
+  if(tab==='profit') return [['营业收入',r.profit.revenue],['减：销售成本（移动加权平均）',r.profit.cogs],['毛利',r.profit.gross],['减：经营费用',r.profit.expense],['减：库存损失（含报损与盘亏）',r.profit.loss],['加：库存盘盈收益',r.profit.gain],['本期利润（未计税费及折旧）',r.profit.total]];
   if(tab==='balance')return [['现金及收款账户',r.balance.cash],['应收款',r.balance.receivable],['商品存货',r.balance.inventory],['资产总计',r.balance.assets],['应付款',r.balance.payable],['业主净投入',r.balance.capital],['累计未分配利润',r.balance.retained],['所有者权益合计',r.balance.equity],['负债与所有者权益总计',r.balance.total],['平衡差额',r.balance.difference]];
   return [['期初现金余额',r.flow.opening],['经营活动现金流入',r.flow.operatingIn],['经营活动现金流出',-r.flow.operatingOut],['经营活动现金净额',r.flow.operating],['投资活动现金净额（本版未支持）',0],['筹资活动现金流入',r.flow.financingIn],['筹资活动现金流出',-r.flow.financingOut],['筹资活动现金净额',r.flow.financing],['现金净增加额',r.flow.net],['期末现金余额',r.flow.closing]];
 }
@@ -114,7 +148,7 @@ export function localAnswer(question,data){
   if(/应收|应付|欠款|赊/.test(q))return prefix+`截至期末：应收款 ¥${money(b.receivable)}，应付款 ¥${money(b.payable)}。收回应收款增加现金，不重复增加营业收入；支付应付款减少现金，不重复确认销售成本。`;
   if(/资产|负债|平衡/.test(q))return prefix+`截至 ${data.period.end}：资产 ¥${money(b.assets)} = 负债 ¥${money(b.payable)} + 所有者权益 ¥${money(b.equity)}。平衡差额 ¥${money(b.difference)}。仅覆盖本工具记录的简化经营账。`;
   if(/现金|资金|余额|现金流/.test(q))return prefix+`期初现金 ¥${money(f.opening)}，经营净流入 ¥${money(f.operating)}，筹资净流入 ¥${money(f.financing)}，期末现金 ¥${money(f.closing)}。\n现金变化与利润不同：采购、赊销、回款及业主投入都会影响两者的关系。`;
-  if(/利润|赚|毛利|收入|营业额|销售|报表|经营|总结/.test(q))return prefix+`营业收入 ¥${money(p.revenue)}，销售成本 ¥${money(p.cogs)}，毛利 ¥${money(p.gross)}。扣除经营费用 ¥${money(p.expense)} 和库存报损 ¥${money(p.loss)} 后，本期利润 ¥${money(p.total)}。\n依据：所选期间的 ${data.records} 条流水，销售成本采用移动加权平均法；尚未计税费和折旧。`;
+  if(/利润|赚|毛利|收入|营业额|销售|报表|经营|总结/.test(q))return prefix+`营业收入 ¥${money(p.revenue)}，销售成本 ¥${money(p.cogs)}，毛利 ¥${money(p.gross)}。扣除经营费用 ¥${money(p.expense)} 和库存损失 ¥${money(p.loss)}，加上库存盘盈收益 ¥${money(p.gain)} 后，本期利润 ¥${money(p.total)}。\n依据：所选期间的 ${data.records} 条流水，销售成本采用移动加权平均法；盘点不计销售或现金，尚未计税费和折旧。`;
   return prefix+'我目前支持查询本店的销售、利润、库存预警、资产负债、应收应付和现金流。可以问“本期赚了多少钱？”或“哪些商品需要补货？”。当前为本地数据问答，未调用大模型。';
 }
 export function validate(state){

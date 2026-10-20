@@ -1,4 +1,5 @@
 /* Merchant workspace: readable records and restrained hierarchy. */
+.stocktake-panel{max-width:760px;margin-bottom:18px}.stocktake-book{padding:12px 14px;background:#f0f5f4;color:#365e58;border-left:3px solid #0f766e;font-size:13px}.count-review{margin:16px 0;border-top:1px solid #d8dee6}.count-review>div{display:flex;justify-content:space-between;gap:20px;padding:10px 0;border-bottom:1px solid #e5e9ee;font-size:13px}.count-review dt{color:#64748b}.count-review dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}.count-reason{font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere}
 :root{--bg:#f6f7f9;--nav:#fff;--ink:#1f2937;--muted:#64748b;--primary:#0f766e;--line:#d8dee6;--radius:8px}
 body{font-family:'Microsoft YaHei UI','Microsoft YaHei','PingFang SC',sans-serif;line-height:1.65}
 .sidebar{width:212px;background:#fff;color:#475569;border-right:1px solid var(--line)}
