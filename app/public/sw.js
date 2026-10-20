@@ -1,6 +1,6 @@
 const SCOPE=new URL(self.registration.scope).pathname;
 const SUFFIX='-'+encodeURIComponent(SCOPE);
-const CACHE='dianxiaozhi-shell-v060-final'+SUFFIX;
+const CACHE='dianxiaozhi-shell-v061-pc-acceptance'+SUFFIX;
 const FILES=['./','./index.html','./styles.css','./import-workflow.css','./merchant.css','./app.mjs','./domain.mjs','./business-schema.mjs','./business.mjs','./business-views.mjs','./report-export.mjs','./storage.mjs','./device.mjs','./offline-setup.mjs','./stocktake-view.mjs','./demo.mjs','./screens.mjs','./workflow.mjs','./importer.mjs','./excel-worker.js','./pwa.mjs','./manifest.webmanifest','./icons/store.svg','./icons/store-192.png','./icons/store-512.png','./lib/echarts.min.js','./lib/xlsx.full.min.js'];
 self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(FILES))));
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('dianxiaozhi-shell-')&&k!==CACHE&&(k.endsWith(SUFFIX)||SCOPE==='/'&&/^dianxiaozhi-shell-v0[45]/.test(k)&&!k.toLowerCase().includes('-%2f'))).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
