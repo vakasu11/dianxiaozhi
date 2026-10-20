@@ -1,3 +1,5 @@
+import {scopedStorage} from './device.mjs';
+import {devicePanel,attachDeviceControls,renderHelp} from './offline-setup.mjs';
 import {blank,addProduct,addEvent,ledger,reports,reportRows,stockList,snapshot,localAnswer,amount,money,today,validate,migrate,TYPES} from './domain.mjs';
 import {load,save,keyFor} from './storage.mjs';
 import {demo} from './demo.mjs';
@@ -8,15 +10,18 @@ import {renderOrders,renderSelection,renderMarketing,renderReports,renderFeedbac
 import {orderStats,periodSummary,addModelUsage} from './business.mjs';
 const $=s=>document.querySelector(s), esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const meta={dashboard:['经营仪表盘','从今天的记录，看清门店的经营状况。'],products:['商品与库存','建立商品档案，记录每一次库存变化。'],activity:['经营流水','销售、采购、费用与资金往来，都有据可查。'],profit:['财务报表','同一套经营记录，三个角度看清资金与收益。'],balance:['财务报表','同一套经营记录，三个角度看清资金与收益。'],cashflow:['财务报表','同一套经营记录，三个角度看清资金与收益。'],assistant:['AI 聊天与查数','用日常语言，了解本店的经营数据。'],settings:['门店与数据','管理门店信息，保存一份可靠的数据备份。']};
-let mode=localStorage.getItem('dianxiaozhi.mode')||'demo',state,route='dashboard',start=today().slice(0,7)+'-01',end=today(),modelBusy=false,chart,submitForm,chatBusy=false,providerAvailable=false,search='';
-if(!['demo','real'].includes(mode))mode='demo';
+const deviceStorage=scopedStorage(localStorage,new URL('./',import.meta.url).pathname);
+function rememberedMode(){try{return deviceStorage.getItem('dianxiaozhi.mode')||'real';}catch{return 'real';}}
+let mode=rememberedMode(),state,route='dashboard',start=today().slice(0,7)+'-01',end=today(),modelBusy=false,chart,submitForm,chatBusy=false,providerAvailable=false,search='';
+if(!['demo','real'].includes(mode))mode='real';
 Object.assign(meta,{imports:['数据导入','先预览、再校验，将商品与经营流水可靠地记入门店。'],operations:['经营建议与复盘','从有依据的建议，到实际执行和后续观察。']});
 Object.assign(meta,{dashboard:['门店概况','核对收入、库存与待处理事项。'],assistant:['经营问答','查询经营记录，查看数据依据。'],orders:['订单与商品分析','按已提供的订单编号合并明细，核对客单、商品表现与组合。'],selection:['选品与试销','记录候选来源、小量试销及阶段观察。'],marketing:['活动与文案','根据商品、成本与活动时间准备门店文案。'],reports:['经营报告','汇总业务、行动进展和团队服务投入。'],feedback:['试用反馈','记录具体问题，跟踪改进结果。']});
+meta.help=['手机使用与安装','记录在本机，备份由你保管。'];
 function notify(message){$('#toast').textContent=message;$('#toast').hidden=false;clearTimeout(notify.timer);notify.timer=setTimeout(()=>$('#toast').hidden=true,4200);}
-function commit(next){state=save(localStorage,mode,next,state.revision);}
+function commit(next){state=save(deviceStorage,mode,next,state.revision);}
 function initialize(){
-  try{state=load(localStorage,mode);if(mode==='demo'&&!localStorage.getItem(keyFor(mode)))commit(demo());render();}
-  catch(e){$('#content').innerHTML=`<div class="card"><h2>数据暂时无法读取</h2><p class="error">${esc(e.message)}</p><p>原数据已保留。先导出原始文件，避免直接清空浏览器。</p><button class="button primary" id="rescue">导出原始存储</button></div>`;$('#rescue').onclick=()=>download(localStorage.getItem(keyFor(mode))||'','店小智待修复数据.json','application/json');}
+  try{state=load(deviceStorage,mode);if(mode==='demo'&&!deviceStorage.getItem(keyFor(mode)))commit(demo());render();}
+  catch(e){$('#content').innerHTML=`<div class="card"><h2>数据暂时无法读取</h2><p class="error">${esc(e.message)}</p><p>原数据已保留。先导出原始文件，避免直接清空浏览器。</p><button class="button primary" id="rescue">导出原始存储</button></div>`;$('#rescue').onclick=()=>download(deviceStorage.getItem(keyFor(mode))||'','店小智待修复数据.json','application/json');}
 }
 function download(content,name,type='text/plain;charset=utf-8'){const url=URL.createObjectURL(new Blob([content],{type})),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
 const empty=(title,text)=>`<div class="empty"><strong>${esc(title)}</strong>${esc(text)}</div>`;
@@ -28,16 +33,16 @@ function render(){
   $('#store-title').textContent=state.store;$('#save-status').textContent=`本机保存 · ${state.events.length} 条记录${state.events.length?' · 业务截至 '+state.events.at(-1).date:' · 暂无流水'}`;
   $('#mode-badge').className='badge '+mode;$('#mode-badge').textContent=mode==='demo'?'模拟演示':'真实录入';
   $('#switch-mode').textContent=mode==='demo'?'进入我的门店':'查看演示';$('#switch-mode').disabled=chatBusy||modelBusy;
-  $('#mode-notice').textContent=mode==='demo'?'当前为模拟演示，所有金额和商品均为示例。进入“我的门店”可建立独立的真实记录。':'当前为本地录入。数据保存在此浏览器，暂不跨设备同步，请定期备份。';
+  $('#mode-notice').textContent=mode==='demo'?'当前为模拟演示，所有金额和商品均为示例。进入“我的门店”可建立独立的真实记录。':'记录仅保存在当前设备和浏览器，不上传云端。清理浏览器或换手机前，请先导出备份。';
   $('#page-title').textContent=meta[route][0];$('#page-description').textContent=meta[route][1];
   document.querySelectorAll('[data-nav]').forEach(a=>{a.classList.toggle('active',a.dataset.nav===route);if(a.dataset.nav===route)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');});
   $('#date-start').value=start;$('#date-end').value=end;$('#date-end').max=today();$('#date-start').max=today();
-  $('#period-form').hidden=['products','settings','imports','marketing','feedback','selection'].includes(route);
+  $('#period-form').hidden=['products','settings','imports','marketing','feedback','selection','help'].includes(route);
   $('#heading-actions').innerHTML=['dashboard','activity'].includes(route)?'<button id="add-record" class="button primary">记一笔</button>':route==='products'?'<button id="add-product" class="button primary">新增商品</button>':['profit','balance','cashflow'].includes(route)?'<button id="export-report" class="button primary">导出报表</button>':'';
   if($('#add-record'))$('#add-record').onclick=()=>recordForm();if($('#add-product'))$('#add-product').onclick=()=>productForm();
   const r=reports(state,start,end);
   const ctx={state,start,end,esc,field,commit,rerender:render,notify,download,openDialog,amount,providerAvailable,requestModel,getState:()=>state,setPeriod:days=>{const d=new Date(today()+'T12:00:00Z');d.setUTCDate(d.getUTCDate()-days+1);start=d.toISOString().slice(0,10);end=today();render();}};
-  if(route==='imports'){renderImport(ctx);return;}if(route==='operations'){renderOperations(ctx);return;}
+  if(route==='help'){renderHelp(ctx);return;}if(route==='imports'){renderImport(ctx);return;}if(route==='operations'){renderOperations(ctx);return;}
   const businessViews={orders:renderOrders,selection:renderSelection,marketing:renderMarketing,reports:renderReports,feedback:renderFeedback};if(businessViews[route]){businessViews[route](ctx);return;}
   if(route==='dashboard')dashboard(r);else if(route==='products')products();else if(route==='activity')activity(r);else if(['profit','balance','cashflow'].includes(route))financial(r);else if(route==='assistant')assistant();else settings();
 }
@@ -48,6 +53,7 @@ function dashboard(r){
   <section class="card insight"><div class="panel-head"><h2>今日经营关注</h2><span class="badge">按记录检查</span></div><div class="insight-item"><strong>${low.length?'留意 '+low.length+' 个低库存商品':'库存检查已完成'}</strong><p>${low.length?low.slice(0,3).map(p=>esc(p.name)+'剩余 '+p.qty+esc(p.unit)).join('；'):'当前没有商品触及设定预警线。'}</p></div><div class="insight-item"><strong>${bs.receivable?'还有应收款待收回':'关注资金安排'}</strong><p>应收款 ${cash(bs.receivable)}，应付款 ${cash(bs.payable)}。已录入 ${state.events.length} 条业务，结果随记录更新。</p></div><a href="#assistant" class="button">查询经营记录</a></section></div>
   <div class="grid report-links">${[['profit','利润表','看收入、成本与经营利润','↗'],['balance','资产负债表','看存货、欠款与业主权益','▤'],['cashflow','现金流量表','看资金从哪里来、到哪里去','⇄']].map(([id,t,d,i])=>`<a class="card report-link" href="#${id}"><span class="icon">${i}</span><span><strong>${t}</strong><small>${d}</small></span><span class="arrow">→</span></a>`).join('')}</div>
   <section class="card"><div class="panel-head"><h2>最近经营记录</h2><a href="#activity" class="text-button">全部流水</a></div>${eventTable(r.period.slice(-5).reverse())}</section>`;
+  if(!state.products.length)$('#content').insertAdjacentHTML('afterbegin','<section class="card start-panel"><h2>建立本机门店</h2><p>从常卖的少量商品开始，填好单位、价格与初始库存。记录只保存在当前设备。</p><div class="action-row"><button id="first-product" class="button primary">建立第一个商品</button><a class="button subtle" href="#help">手机安装与备份说明</a></div></section>');if($('#first-product'))$('#first-product').onclick=()=>productForm();
   const pending=state.actions.filter(a=>a.status==='accepted'||a.status==='executed').length;
   $('#content').insertAdjacentHTML('afterbegin',`<div class="notice dashboard-workflow">${state.coverage?'已确认完整销售记录：'+esc(state.coverage.from)+' 至 '+esc(state.coverage.to):'先确认完整销售期间，再计算补货数量'}<a href="#operations" class="text-button">经营建议与复盘${pending?' · '+pending+' 项待处理':''}</a><a href="#imports" class="text-button">导入经营数据</a></div>`);
   const daily=new Map();for(const e of r.period){if(!daily.has(e.date))daily.set(e.date,{revenue:0,cogs:0});const d=daily.get(e.date);d.revenue+=e.delta.revenue;d.cogs+=e.delta.cogs;}
@@ -119,9 +125,9 @@ async function sendChat(e){
   finally{chatBusy=false;render();}
 }
 function settings(){
-  $('#content').innerHTML=`<div class="grid settings-grid"><section class="card"><h2>门店信息</h2><form id="store-form">${field('门店名称','store',state.store,'text','required maxlength="60"')}<button class="button primary">保存门店信息</button></form><p class="muted">${mode==='demo'?'此处修改仅影响演示门店。':'此处管理真实录入数据。'}</p></section><section class="card"><h2>备份与恢复</h2><p class="muted">备份包含商品、流水和聊天。恢复将替换当前模式的数据，请先保留现有备份。</p><div class="action-row"><button id="backup" class="button primary">导出完整备份</button><button id="restore" class="button subtle">选择备份恢复</button></div><input id="restore-file" type="file" accept=".json,application/json" hidden><p class="filter-note">演示和真实数据相互隔离；备份只允许恢复到相同模式。</p></section><section class="card"><h2>模型连接状态</h2><span class="badge ${providerAvailable?'ok':''}">${providerAvailable?'服务端已配置模型':'当前使用本地数据问答'}</span><p class="muted">本地查数可直接使用。接入模型需在本机服务端配置服务地址、模型名称和密钥；密钥不会写入网页或备份。</p><p class="muted">服务端配置说明见项目 README。聊天时可选择是否发送经营汇总。</p></section><section class="card"><h2>本版本的数据口径</h2><p class="muted">支持整数计件商品、单门店经营流水和简化财务三表。暂未涵盖税费、折旧、批次、退款以及会员分析。</p><p class="muted">商品初始库存按业主实物投入记账。采购和销售请按日期顺序录入，历史错误可逐笔撤销后重录。</p><p class="muted">数据不会自动云同步；清理浏览器数据前请导出备份。</p></section></div>`;
+  $('#content').innerHTML=`<div class="grid settings-grid"><section class="card"><h2>门店信息</h2><form id="store-form">${field('门店名称','store',state.store,'text','required maxlength="60"')}<button class="button primary">保存门店信息</button></form><p class="muted">${mode==='demo'?'此处修改仅影响演示门店。':'此处管理真实录入数据。'}</p></section><section class="card"><h2>备份与恢复</h2><p class="muted">备份包含商品、流水和聊天。恢复将替换当前模式的数据，请先保留现有备份。</p><div class="action-row"><button id="backup" class="button primary">导出完整备份</button><button id="restore" class="button subtle">选择备份恢复</button></div><input id="restore-file" type="file" accept=".json,application/json" hidden><p class="filter-note">演示和真实数据相互隔离；备份只允许恢复到相同模式。</p></section>${devicePanel({state,mode,storage:deviceStorage,esc})}<section class="card"><h2>经营问答</h2><span class="badge">本地规则查数</span><p class="muted">可查询当前门店的销售、库存和报表。本次手机本地版暂不接入外部模型，不需要填写 API Key。</p><a class="text-button" href="#assistant">打开经营问答</a></section><section class="card"><h2>本版本的数据口径</h2><p class="muted">支持整数计件商品、单门店经营流水和简化财务三表。暂未涵盖税费、折旧、批次、退款以及会员分析。</p><p class="muted">商品初始库存按业主实物投入记账。采购和销售请按日期顺序录入，历史错误可逐笔撤销后重录。</p><p class="muted">数据不会自动云同步；清理浏览器数据前请导出备份。</p></section></div>`;
   $('#store-form').onsubmit=e=>{e.preventDefault();try{const n=structuredClone(state);n.store=new FormData(e.target).get('store').trim();if(!n.store)throw Error('门店名称不能为空');commit(n);render();notify('门店信息已保存');}catch(error){notify(error.message);}};
-  $('#backup').onclick=()=>download(JSON.stringify({format:'dianxiaozhi-backup',mode,exportedAt:new Date().toISOString(),state},null,2),`店小智-${mode}-${today()}.json`,'application/json');
+  $('#backup').onclick=()=>{const exportedAt=new Date().toISOString();download(JSON.stringify({format:'dianxiaozhi-backup',mode,exportedAt,state},null,2),`店小智-${mode}-${today()}.json`,'application/json');try{deviceStorage.setItem('last-export.'+mode,exportedAt);if($('#device-summary'))$('#device-summary').textContent=`${state.products.length} 个商品，${state.events.length} 条流水；上次发起导出 ${exportedAt.slice(0,10)}。`;}catch{}notify('已发起备份下载，请在手机文件或下载列表中确认保存');};attachDeviceControls(notify);
   const restoreText=text=>{if(text.length>15000000)throw Error('备份文件超过 15 MB');const b=JSON.parse(text);if(b.format!=='dianxiaozhi-backup'||b.mode!==mode)throw Error('备份格式或数据模式不匹配');b.state=migrate(b.state);openDialog('确认恢复备份',`<p>门店：${esc(b.state.store)}</p><p>${b.state.products.length} 个商品，${b.state.events.length} 条业务，${b.state.actions.length} 条行动。将替换当前${mode==='demo'?'演示':'真实'}数据。请先导出现有备份。</p>`,()=>{resetImportDraft();commit({...b.state,revision:state.revision});});};
   $('#restore').onclick=()=>$('#restore-file').click();$('#restore-file').onchange=async e=>{const f=e.target.files[0];if(!f)return;try{if(f.size>15000000)throw Error('备份文件超过 15 MB');restoreText(await f.text());}catch(error){notify('无法恢复：'+error.message);}e.target.value='';};
   $('#restore').insertAdjacentHTML('afterend','<button id="paste-restore" class="button subtle">粘贴备份恢复</button>');
@@ -131,10 +137,10 @@ $('#edit-form').onsubmit=e=>{e.preventDefault();try{const changed=submitForm(new
 $('#dialog-close').onclick=$('#dialog-cancel').onclick=()=>$('#edit-dialog').close();
 $('#period-form').onsubmit=e=>{e.preventDefault();try{const a=$('#date-start').value,b=$('#date-end').value;reports(state,a,b);if(b>today())throw Error('结束日期不能晚于今天');start=a;end=b;render();}catch(error){notify(error.message);}};
 $('#this-month').onclick=()=>{start=today().slice(0,7)+'-01';end=today();render();};
-$('#switch-mode').onclick=()=>{if(chatBusy||modelBusy)return;mode=mode==='demo'?'real':'demo';localStorage.setItem('dianxiaozhi.mode',mode);search='';resetImportDraft();initialize();};
+$('#switch-mode').onclick=()=>{if(chatBusy||modelBusy)return;mode=mode==='demo'?'real':'demo';deviceStorage.setItem('dianxiaozhi.mode',mode);search='';resetImportDraft();initialize();};
 window.addEventListener('hashchange',()=>{setMenu(false);render();window.scrollTo(0,0);});window.addEventListener('resize',()=>chart?.resize());
-window.addEventListener('storage',e=>{if(e.key===keyFor(mode)){if(chatBusy)return;try{state=load(localStorage,mode);render();notify('已同步此浏览器其他窗口的最新记录');}catch(error){notify(error.message);}}});
-function setMenu(open){$('#navigation').classList.toggle('open',open);$('#menu-shade').hidden=!open;$('#menu-toggle').setAttribute('aria-expanded',String(open));document.body.style.overflow=open?'hidden':'';if(open)$('#navigation nav a.active')?.focus();else $('#menu-toggle').blur();}
+window.addEventListener('storage',e=>{if(e.key===deviceStorage.key(keyFor(mode))){if(chatBusy)return;try{state=load(deviceStorage,mode);render();notify('已同步此浏览器其他窗口的最新记录');}catch(error){notify(error.message);}}});
+function setMenu(open){document.querySelector('main').inert=Boolean(open&&matchMedia('(max-width:760px)').matches);$('#navigation').classList.toggle('open',open);$('#menu-shade').hidden=!open;$('#menu-toggle').setAttribute('aria-expanded',String(open));document.body.style.overflow=open?'hidden':'';if(open)$('#navigation nav a.active')?.focus();else $('#menu-toggle').blur();}
 $('#menu-toggle').onclick=()=>setMenu(!$('#navigation').classList.contains('open'));$('#menu-shade').onclick=()=>setMenu(false);document.addEventListener('keydown',e=>{if(e.key==='Escape')setMenu(false);});document.querySelectorAll('[data-nav]').forEach(a=>a.addEventListener('click',()=>setMenu(false)));
 async function requestModel(question,data){
   if(!navigator.onLine)throw Error('离线时请使用本地问答');
@@ -143,4 +149,5 @@ async function requestModel(question,data){
   finally{try{if(mode!==callMode)throw Error('数据模式已变化');commit(addModelUsage(state,{status:ok?'success':'failed',usage:result?.usage,durationMs:performance.now()-since}));}catch(e){notify('调用记录未保存：'+e.message);}modelBusy=false;$('#switch-mode').disabled=chatBusy;}
 }
 initialize();
-fetch('/api/status').then(r=>r.json()).then(s=>{providerAvailable=s.configured;if(['assistant','settings','marketing'].includes(route))render();}).catch(()=>{});
+// Local-first mobile release: external model integration is intentionally disabled.
+providerAvailable=false;

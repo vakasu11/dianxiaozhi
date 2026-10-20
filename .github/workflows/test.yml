@@ -13,3 +13,6 @@ jobs:
       - name: Run domain and server tests
         working-directory: app
         run: npm test
+      - name: Verify static deployment bundle
+        working-directory: app
+        run: npm run build:pages

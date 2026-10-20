@@ -1,6 +1,6 @@
 let installEvent,registration,updating=false;
 const install=document.querySelector('#install-app'),update=document.querySelector('#update-app'),status=document.querySelector('#network-status');
-async function network(){let connected=navigator.onLine;if(connected){try{const r=await fetch('./api/status',{cache:'no-store',signal:AbortSignal.timeout(2000)});connected=r.ok;}catch{connected=false;}}status.textContent=connected?'本机服务已连接':'离线 · 使用本机记录';status.classList.toggle('offline',!connected);document.body.classList.toggle('is-offline',!connected);}
+function network(){const connected=navigator.onLine;status.textContent=connected?'在线 · 记录在本机':'离线 · 记录在本机';status.classList.toggle('offline',!connected);document.body.classList.toggle('is-offline',!connected);}
 network();addEventListener('online',network);addEventListener('offline',network);addEventListener('focus',network);
 addEventListener('beforeinstallprompt',e=>{e.preventDefault();installEvent=e;install.textContent='安装应用';});
 addEventListener('appinstalled',()=>{install.textContent='已安装';installEvent=null;});
