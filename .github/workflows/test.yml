@@ -16,3 +16,6 @@ jobs:
       - name: Verify static deployment bundle
         working-directory: app
         run: npm run build:pages
+      - name: Verify CloudBase HTTP function package
+        working-directory: app
+        run: npm run build:cloudbase

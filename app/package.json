@@ -1,8 +1,15 @@
 {
   "name": "dianxiaozhi",
-  "version": "0.6.1",
+  "version": "0.6.2",
   "private": true,
   "type": "module",
-  "scripts": { "start": "node server.mjs", "build:pages": "node scripts/build-pages.mjs", "test": "node --test tests/*.test.mjs" },
-  "engines": { "node": ">=22" }
+  "scripts": {
+    "start": "node server.mjs",
+    "build:pages": "node scripts/build-pages.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "build:cloudbase": "node scripts/build-cloudbase.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  }
 }

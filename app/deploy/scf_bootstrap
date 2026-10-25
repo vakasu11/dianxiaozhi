@@ -1,0 +1,5 @@
+#!/bin/sh
+cd /var/user || exit 1
+export APP_MODE=cloudbase
+export PORT=9000
+exec /var/lang/node22/bin/node server.mjs
