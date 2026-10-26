@@ -1,3 +1,4 @@
+import {uiIcon,groupForRoute,renderContextNav,decorateWorkspaceNavigation,dashboardView} from './workspace-ui.mjs';
 import {onlineAccess} from './online.mjs';
 import {modelSummary} from './ai-summary.mjs';
 import {scopedStorage} from './device.mjs';
@@ -19,7 +20,7 @@ const online=onlineAccess(available=>{providerAvailable=available;if(state)rende
 let mode=rememberedMode(),state,route='dashboard',start=today().slice(0,7)+'-01',end=today(),modelBusy=false,chart,submitForm,chatBusy=false,providerAvailable=false,search='';
 if(!['demo','real'].includes(mode))mode='real';
 Object.assign(meta,{imports:['数据导入','先预览、再校验，将商品与经营流水可靠地记入门店。'],operations:['经营建议与复盘','从有依据的建议，到实际执行和后续观察。']});
-Object.assign(meta,{dashboard:['门店概况','核对收入、库存与待处理事项。'],assistant:['经营问答','查询经营记录，查看数据依据。'],orders:['订单与商品分析','按已提供的订单编号合并明细，核对客单、商品表现与组合。'],selection:['选品与试销','记录候选来源、小量试销及阶段观察。'],marketing:['活动与文案','根据商品、成本与活动时间准备门店文案。'],reports:['经营报告','汇总业务、行动进展和团队服务投入。'],feedback:['试用反馈','记录具体问题，跟踪改进结果。']});
+Object.assign(meta,{dashboard:['门店首页','记销售、看收入、查库存，店里几件事在这里处理。'],assistant:['经营问答','查询经营记录，查看数据依据。'],orders:['订单与商品分析','按已提供的订单编号合并明细，核对客单、商品表现与组合。'],selection:['选品与试销','记录候选来源、小量试销及阶段观察。'],marketing:['活动与文案','根据商品、成本与活动时间准备门店文案。'],reports:['经营报告','汇总业务、行动进展和团队服务投入。'],feedback:['试用反馈','记录具体问题，跟踪改进结果。']});
 meta.help=['手机使用与安装','记录在本机，备份由你保管。'];
 meta.stocktake=['库存盘点','数实物、核对差异，确认后调整库存。'];
 function notify(message){$('#toast').textContent=message;$('#toast').hidden=false;clearTimeout(notify.timer);notify.timer=setTimeout(()=>$('#toast').hidden=true,4200);}
@@ -40,10 +41,12 @@ function render(){
   $('#switch-mode').textContent=mode==='demo'?'进入我的门店':'查看演示';$('#switch-mode').disabled=chatBusy||modelBusy;
   $('#mode-notice').textContent=mode==='demo'?'当前为模拟演示，所有金额和商品均为示例。进入“我的门店”可建立独立的真实记录。':'账本保存在当前设备和浏览器，不自动云同步；仅主动使用 AI 时发送本次汇总。清理浏览器或换手机前，请先导出备份。';
   $('#page-title').textContent=meta[route][0];$('#page-description').textContent=meta[route][1];
-  document.querySelectorAll('[data-nav]').forEach(a=>{a.classList.toggle('active',a.dataset.nav===route);if(a.dataset.nav===route)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');});
+  document.body.dataset.page=route;const currentGroup=groupForRoute(route);
+  document.querySelectorAll('[data-nav]').forEach(a=>{const selected=a.dataset.nav===currentGroup.id;a.classList.toggle('active',selected);if(selected)a.setAttribute('aria-current',a.dataset.nav===route?'page':'true');else a.removeAttribute('aria-current');});
+  $('#workspace-nav').innerHTML=renderContextNav(route);
   $('#date-start').value=start;$('#date-end').value=end;$('#date-end').max=today();$('#date-start').max=today();
   $('#period-form').hidden=['products','settings','imports','marketing','feedback','selection','help','stocktake'].includes(route);
-  $('#heading-actions').innerHTML=['dashboard','activity'].includes(route)?'<button id="add-record" class="button primary">记一笔</button>':route==='products'?'<button id="add-product" class="button primary">新增商品</button>':['profit','balance','cashflow'].includes(route)?'<button id="export-report" class="button primary">导出报表</button>':'';
+  $('#heading-actions').innerHTML=['dashboard','activity'].includes(route)?`<button id="add-record" class="button ${route==='dashboard'?'subtle':'primary'}">${route==='dashboard'?'其他记账':'记一笔'}</button>`:route==='products'?'<button id="add-product" class="button primary">新增商品</button>':['profit','balance','cashflow'].includes(route)?'<button id="export-report" class="button primary">导出报表</button>':'';
   if($('#add-record'))$('#add-record').onclick=()=>recordForm();if($('#add-product'))$('#add-product').onclick=()=>productForm();
   const r=reports(state,start,end);
   const ctx={state,start,end,esc,field,commit,rerender:render,notify,download,openDialog,amount,providerAvailable,requestModel,getState:()=>state,setPeriod:days=>{const d=new Date(today()+'T12:00:00Z');d.setUTCDate(d.getUTCDate()-days+1);start=d.toISOString().slice(0,10);end=today();render();}};
@@ -52,17 +55,26 @@ function render(){
   if(route==='dashboard')dashboard(r);else if(route==='products')products();else if(route==='activity')activity(r);else if(['profit','balance','cashflow'].includes(route))financial(r);else if(route==='assistant')assistant();else settings();
 }
 function dashboard(r){
-  const low=stockList(state,end).filter(p=>p.low),bs=r.balance;
-  $('#content').innerHTML=`<div class="grid kpis">${kpi('本期营业收入','来自已录入销售业务',cash(r.profit.revenue),'¥')}${kpi('本期利润','未计税费及折旧',cash(r.profit.total),'↗')}${kpi('期末现金余额','含现金及收款账户',cash(bs.cash),'▣')}${kpi('低库存商品','按商品预警线检查',low.length+' <small style="font-size:12px;color:#8b95a7">项</small>','!')}</div>
-  <div class="grid two-col"><section class="card"><div class="panel-head"><h2>营业收入与销售成本</h2><span class="muted">所选期间 · 元</span></div><div id="trend-chart" class="chart" role="img" aria-label="所选期间营业收入和销售成本趋势图"></div>${!r.period.length?'<p class="muted">暂无业务记录，记一笔后生成趋势。</p>':''}</section>
-  <section class="card insight"><div class="panel-head"><h2>今日经营关注</h2><span class="badge">按记录检查</span></div><div class="insight-item"><strong>${low.length?'留意 '+low.length+' 个低库存商品':'库存检查已完成'}</strong><p>${low.length?low.slice(0,3).map(p=>esc(p.name)+'剩余 '+p.qty+esc(p.unit)).join('；'):'当前没有商品触及设定预警线。'}</p></div><div class="insight-item"><strong>${bs.receivable?'还有应收款待收回':'关注资金安排'}</strong><p>应收款 ${cash(bs.receivable)}，应付款 ${cash(bs.payable)}。已录入 ${state.events.length} 条业务，结果随记录更新。</p></div><a href="#assistant" class="button">查询经营记录</a></section></div>
-  <div class="grid report-links">${[['profit','利润表','看收入、成本与经营利润','↗'],['balance','资产负债表','看存货、欠款与业主权益','▤'],['cashflow','现金流量表','看资金从哪里来、到哪里去','⇄']].map(([id,t,d,i])=>`<a class="card report-link" href="#${id}"><span class="icon">${i}</span><span><strong>${t}</strong><small>${d}</small></span><span class="arrow">→</span></a>`).join('')}</div>
-  <section class="card"><div class="panel-head"><h2>最近经营记录</h2><a href="#activity" class="text-button">全部流水</a></div>${eventTable(r.period.slice(-5).reverse())}</section>`;
-  if(!state.products.length)$('#content').insertAdjacentHTML('afterbegin','<section class="card start-panel"><h2>建立本机门店</h2><p>从常卖的少量商品开始，填好单位、价格与初始库存。记录只保存在当前设备。</p><div class="action-row"><button id="first-product" class="button primary">建立第一个商品</button><a class="button subtle" href="#help">手机安装与备份说明</a></div></section>');if($('#first-product'))$('#first-product').onclick=()=>productForm();
+  const low=stockList(state,end).filter(p=>p.low),daily=new Map();
+  for(const e of r.period){if(!daily.has(e.date))daily.set(e.date,{revenue:0,cogs:0});const d=daily.get(e.date);d.revenue+=e.delta.revenue;d.cogs+=e.delta.cogs;}
   const pending=state.actions.filter(a=>a.status==='accepted'||a.status==='executed').length;
-  $('#content').insertAdjacentHTML('afterbegin',`<div class="notice dashboard-workflow">${state.coverage?'已确认完整销售记录：'+esc(state.coverage.from)+' 至 '+esc(state.coverage.to):'先确认完整销售期间，再计算补货数量'}<a href="#operations" class="text-button">经营建议与复盘${pending?' · '+pending+' 项待处理':''}</a><a href="#imports" class="text-button">导入经营数据</a></div>`);
-  const daily=new Map();for(const e of r.period){if(!daily.has(e.date))daily.set(e.date,{revenue:0,cogs:0});const d=daily.get(e.date);d.revenue+=e.delta.revenue;d.cogs+=e.delta.cogs;}
-  if(window.echarts){chart=echarts.init($('#trend-chart'));chart.setOption({color:['#0f766e','#9badb9'],tooltip:{trigger:'axis'},legend:{top:0,right:5,itemWidth:12,itemHeight:8,textStyle:{color:'#8b95a7',fontSize:11}},grid:{left:55,right:15,top:42,bottom:26},xAxis:{type:'category',data:[...daily.keys()],axisLabel:{fontSize:10,color:'#97a1b0',formatter:s=>s.slice(5)},axisLine:{lineStyle:{color:'#e7ecf3'}},axisTick:{show:false}},yAxis:{type:'value',axisLabel:{fontSize:10,color:'#97a1b0'},splitLine:{lineStyle:{color:'#f0f3f8'}}},series:[{name:'营业收入',type:'line',smooth:false,symbolSize:5,data:[...daily.values()].map(d=>d.revenue/100)},{name:'销售成本',type:'line',smooth:false,symbolSize:4,data:[...daily.values()].map(d=>d.cogs/100)}]});}
+  $('#content').innerHTML=dashboardView({state,r,low,start,end,cash,esc,eventTable,daily,pending});
+  $('#quick-sale').onclick=()=>state.products.some(p=>p.active)?recordForm(undefined,'sale'):productForm();
+  if($('#first-product'))$('#first-product').onclick=()=>productForm();
+  if($('#empty-chart-record'))$('#empty-chart-record').onclick=()=>recordForm();
+  $('#quick-income').onclick=()=>{const panel=$('#income-overview');panel.focus({preventScroll:true});panel.scrollIntoView({behavior:matchMedia('(prefers-reduced-motion:reduce)').matches?'instant':'smooth',block:'start'});};
+  if(window.echarts&&$('#trend-chart')){
+    const compact=matchMedia('(max-width:760px)').matches,few=daily.size<4;
+    chart=echarts.init($('#trend-chart'));
+    chart.setOption({animation:!matchMedia('(prefers-reduced-motion:reduce)').matches,color:['#3157c8','#a76820'],
+      tooltip:{trigger:'axis',confine:true,valueFormatter:value=>Number(value).toFixed(2)+' 元'},
+      legend:{top:0,left:compact?0:8,itemWidth:20,itemHeight:8,itemGap:22,textStyle:{color:'#53637b',fontSize:12}},
+      grid:{left:compact?47:55,right:18,top:50,bottom:32},
+      xAxis:{type:'category',boundaryGap:few,data:[...daily.keys()],axisLabel:{fontSize:11,color:'#607087',hideOverlap:true,formatter:date=>date.slice(5)},axisLine:{lineStyle:{color:'#dce3ef'}},axisTick:{show:false}},
+      yAxis:{type:'value',axisLabel:{fontSize:11,color:'#607087'},splitLine:{lineStyle:{color:'#e8edf5',type:'dashed'}}},
+      series:[{name:'营业收入',type:few?'bar':'line',smooth:false,symbol:'circle',symbolSize:7,barMaxWidth:40,lineStyle:{width:3.5},areaStyle:few?undefined:{color:'#3157c8',opacity:.07},data:[...daily.values()].map(d=>d.revenue/100)},
+        {name:'销售成本',type:few?'bar':'line',smooth:false,symbol:'diamond',symbolSize:6,barMaxWidth:40,lineStyle:{width:2.5,type:'dashed'},data:[...daily.values()].map(d=>d.cogs/100)}]});
+  }
 }
 function eventTable(rows){if(!rows.length)return empty('还没有经营记录','点击“记一笔”，从资金投入、商品采购或销售开始。');return `<div class="table-wrap"><table><thead><tr><th>日期</th><th>业务</th><th>商品 / 备注</th><th class="numeric">数量</th><th class="numeric">业务金额</th><th>结算</th></tr></thead><tbody>${rows.map(e=>`<tr><td>${esc(e.date)}</td><td><span class="badge ${e.type==='sale'?'ok':''}">${TYPES[e.type]}</span></td><td>${esc(state.products.find(p=>p.id===e.productId)?.name||'—')}${e.note?'<small>'+esc(e.note)+'</small>':''}</td><td class="numeric">${e.type==='stocktake'?e.qty+'（实盘）':e.qty||'—'}</td><td class="numeric">${e.type==='stocktake'?(e.delta.gain?'盘盈 '+cash(e.delta.gain):e.delta.loss?'盘亏 '+cash(e.delta.loss):'账实一致'):e.type==='loss'?'按库存成本核算':cash(e.amount)}</td><td>${['sale','purchase'].includes(e.type)?e.payment==='credit'?'赊账':'现结':['opening','loss','stocktake'].includes(e.type)?'非现金':'现结'}</td></tr>`).join('')}</tbody></table></div>`;}
 function products(){
@@ -71,7 +83,7 @@ function products(){
   $('#product-search').oninput=e=>{search=e.target.value;const pos=e.target.selectionStart;products();$('#product-search').focus();$('#product-search').setSelectionRange(pos,pos);};
   document.querySelectorAll('.edit-product').forEach(b=>b.onclick=()=>productForm(b.dataset.id));document.querySelectorAll('.stock-record').forEach(b=>b.onclick=()=>recordForm(b.dataset.id));
 }
-function activity(r){$('#content').innerHTML=`<section class="card"><div class="toolbar"><span class="muted">所选期间 ${r.period.length} 条 · 仅最后录入的一笔可撤销</span><button id="undo" class="button subtle" ${!state.events.length?'disabled':''}>撤销最后一笔</button></div>${eventTable([...r.period].reverse())}<p class="filter-note">按日期顺序录入。记销售时可填写订单编号与成交时间。同日同号的商品明细合并为一单；无编号记录仅计入商品和营收统计，不推算客流。</p></section>`;$('#undo').onclick=()=>{if(!state.events.length)return;const e=state.events.at(-1);openDialog('撤销最后一笔',`<p>即将撤销 ${esc(e.date)} 的${TYPES[e.type]}（${e.type==='stocktake'?'实盘 '+e.qty:e.type==='loss'?'报损':cash(e.amount)}），库存和报表会重新计算。</p>`,()=>commit(undoLastEvent(state)));};}
+function activity(r){$('#content').innerHTML=`<section class="card"><div class="toolbar"><span class="muted">所选期间 ${r.period.length} 条 · 仅最后录入的一笔可撤销</span><a class="button subtle" href="#imports">导入流水</a><button id="undo" class="button subtle" ${!state.events.length?'disabled':''}>撤销最后一笔</button></div>${eventTable([...r.period].reverse())}<p class="filter-note">按日期顺序录入。记销售时可填写订单编号与成交时间。同日同号的商品明细合并为一单；无编号记录仅计入商品和营收统计，不推算客流。</p></section>`;$('#undo').onclick=()=>{if(!state.events.length)return;const e=state.events.at(-1);openDialog('撤销最后一笔',`<p>即将撤销 ${esc(e.date)} 的${TYPES[e.type]}（${e.type==='stocktake'?'实盘 '+e.qty:e.type==='loss'?'报损':cash(e.amount)}），库存和报表会重新计算。</p>`,()=>commit(undoLastEvent(state)));};}
 function financial(r){
   const names={profit:'利润表',balance:'资产负债表',cashflow:'现金流量表'},rows=reportRows(r,route),totals=route==='profit'?[2,6]:route==='balance'?[3,7,8,9]:[3,7,8,9];
   $('#content').innerHTML=`<div class="report-tabs">${Object.entries(names).map(([id,n])=>`<a class="${route===id?'active':''}" href="#${id}">${n}</a>`).join('')}</div><div class="report-layout"><section class="card report-paper"><div class="paper-head"><h2>${names[route]}</h2><p>${esc(state.store)} · ${mode==='demo'?'模拟演示':'已录入业务'}</p><p>${route==='balance'?'截至 '+end:start+' 至 '+end}　单位：人民币元</p></div><table class="report-table"><thead><tr><th>项目</th><th class="numeric">${route==='balance'?'期末余额':'本期金额'}</th></tr></thead><tbody>${rows.map(([n,v],i)=>`<tr class="${totals.includes(i)?'total':''}"><td>${n}</td><td class="numeric">${money(v)}</td></tr>`).join('')}</tbody></table><p class="report-note">编制口径：仅根据本工具已录入记录生成的简化经营报表。未覆盖税费、固定资产、折旧及完整会计科目；未录入业务不在报表中。初始商品按业主非现金投入记录，存货销售成本采用移动加权平均法。该页面用于经营分析，非完整法定财务报表或预测报表。</p></section><aside class="report-aside"><div class="card"><h2>账目检查</h2><div class="check">✓ 资产 = 负债 + 所有者权益<br>差额 ${cash(r.balance.difference)}</div><div class="check">✓ 期初现金 + 净变动 = 期末现金<br>差额 ${cash(r.flow.opening+r.flow.net-r.flow.closing)}</div><p>利润表反映期间经营结果；资产负债表反映期末余额。业主投入和提款不会计入营业利润。</p><button id="print-report" class="button subtle">打印 / 保存 PDF</button></div><div class="card" style="margin-top:16px"><h2>看不懂报表？</h2><p>询问利润和现金的区别，或了解应收应付款。</p><a href="#assistant" class="text-button">查看经营问答</a></div></aside></div>`;
@@ -89,9 +101,9 @@ function productForm(id){
   });
   $('#dialog-fields .fields-grid').insertAdjacentHTML('beforeend',`${field('供货提前期（天）','leadDays',v.leadDays??2,'number','required min="0" max="365" step="1"')}${field('安全储备（天）','safetyDays',v.safetyDays??3,'number','required min="0" max="365" step="1"')}${field('补货包装数量（基础单位）','packSize',v.packSize??1,'number','required min="1" max="100000" step="1"')}`);
 }
-function recordForm(productId){
+function recordForm(productId,initialType){
   const active=state.products.filter(p=>p.active);
-  const options=Object.entries(TYPES).filter(([k])=>!['opening','stocktake'].includes(k)).map(([k,v])=>`<option value="${k}" ${k===(productId?'sale':state.events.length?'sale':'capital')?'selected':''}>${v}</option>`).join('');
+  const options=Object.entries(TYPES).filter(([k])=>!['opening','stocktake'].includes(k)).map(([k,v])=>`<option value="${k}" ${k===(initialType||(productId?'sale':state.events.length?'sale':'capital'))?'selected':''}>${v}</option>`).join('');
   openDialog('记一笔经营业务',`<div class="fields-grid"><label class="field">业务类型<select name="type" id="record-type">${options}</select></label>${field('日期','date',today(),'date',`required max="${today()}"`)}</div><div id="stock-fields"><label class="field">商品<select name="productId" id="record-product"><option value="">请选择商品</option>${active.map(p=>`<option value="${esc(p.id)}" ${p.id===productId?'selected':''}>${esc(p.name)} · ${esc(p.unit)}</option>`).join('')}</select></label>${field('数量（整数）','qty',1,'number','min="1" step="1" id="record-qty"')}</div><div id="amount-fields">${field('本笔总金额（元）','amount','','number','min="0.01" max="100000000" step="0.01" id="record-amount"')}</div><label class="field" id="payment-field">结算方式<select name="payment"><option value="cash">现结（现金或收款账户）</option><option value="credit">赊账（应收 / 应付）</option></select></label><div id="order-fields" class="fields-grid">${field('订单编号（可选）','orderId','','text','maxlength="80"')}${field('成交时间（可选）','orderTime','','time')}</div>${field('备注（可选）','note','','text','maxlength="200"')}<p class="form-note" id="record-hint"></p>`,data=>{const t=data.get('type');commit(addEvent(state,{type:t,date:data.get('date'),productId:['sale','purchase','loss'].includes(t)?data.get('productId'):null,qty:['sale','purchase','loss'].includes(t)?Number(data.get('qty')):0,amount:t==='loss'?0:amount(data.get('amount')),payment:data.get('payment')||'cash',note:data.get('note'),orderId:t==='sale'?data.get('orderId'):'',orderTime:t==='sale'?data.get('orderTime'):''}));});
   const update=()=>{const type=$('#record-type').value;$('#order-fields').hidden=type!=='sale';const isStock=['sale','purchase','loss'].includes(type);$('#stock-fields').hidden=!isStock;$('#record-product').required=isStock;$('#record-qty').required=isStock;$('#record-product').disabled=!isStock;$('#record-qty').disabled=!isStock;$('#amount-fields').hidden=type==='loss';$('#record-amount').required=type!=='loss';$('#record-amount').disabled=type==='loss';$('#payment-field').hidden=!['sale','purchase'].includes(type);$('#record-hint').textContent=type==='sale'?'销售会扣减库存并按移动加权平均成本计算利润。总金额是本笔全部商品的实际成交金额。':type==='purchase'?'采购入库会增加库存，现结扣现金，赊购增加应付款。请填写本笔采购总额。':type==='loss'?'报损按当前库存平均成本扣减存货并计入损失，不产生现金支出。':type==='capital'?'业主现金投入增加现金及所有者权益，不计入营业收入。':'资金业务按总金额记录；收款、付款和提款需有足够的对应余额。';if(!['sale','purchase'].includes(type))$('#record-amount').value='';reprice();};
   const reprice=()=>{const p=active.find(p=>p.id===$('#record-product').value),type=$('#record-type').value;if(p&&['sale','purchase'].includes(type))$('#record-amount').value=((type==='sale'?p.price:p.cost)*Number($('#record-qty').value)/100).toFixed(2);};
@@ -144,15 +156,17 @@ $('#dialog-close').onclick=$('#dialog-cancel').onclick=()=>$('#edit-dialog').clo
 $('#period-form').onsubmit=e=>{e.preventDefault();try{const a=$('#date-start').value,b=$('#date-end').value;reports(state,a,b);if(b>today())throw Error('结束日期不能晚于今天');start=a;end=b;render();}catch(error){notify(error.message);}};
 $('#this-month').onclick=()=>{start=today().slice(0,7)+'-01';end=today();render();};
 $('#switch-mode').onclick=()=>{if(chatBusy||modelBusy)return;mode=mode==='demo'?'real':'demo';deviceStorage.setItem('dianxiaozhi.mode',mode);search='';resetImportDraft();initialize();};
-window.addEventListener('hashchange',()=>{setMenu(false);render();window.scrollTo(0,0);});window.addEventListener('resize',()=>chart?.resize());
+window.addEventListener('hashchange',()=>{setMenu(false);render();window.scrollTo(0,0);});window.addEventListener('resize',()=>{setMenu($('#navigation').classList.contains('open'));chart?.resize();});
 window.addEventListener('storage',e=>{if(e.key===deviceStorage.key(keyFor(mode))){if(chatBusy)return;try{state=load(deviceStorage,mode);render();notify('已同步此浏览器其他窗口的最新记录');}catch(error){notify(error.message);}}});
-function setMenu(open){document.querySelector('main').inert=Boolean(open&&matchMedia('(max-width:760px)').matches);$('#navigation').classList.toggle('open',open);$('#menu-shade').hidden=!open;$('#menu-toggle').setAttribute('aria-expanded',String(open));document.body.style.overflow=open?'hidden':'';if(open)$('#navigation nav a.active')?.focus();else $('#menu-toggle').blur();}
-$('#menu-toggle').onclick=()=>setMenu(!$('#navigation').classList.contains('open'));$('#menu-shade').onclick=()=>setMenu(false);document.addEventListener('keydown',e=>{if(e.key==='Escape')setMenu(false);});document.querySelectorAll('[data-nav]').forEach(a=>a.addEventListener('click',()=>setMenu(false)));
+function setMenu(open,returnFocus=false){const mobile=matchMedia('(max-width:760px)').matches,expanded=Boolean(open&&mobile),wasOpen=$('#navigation').classList.contains('open');document.querySelector('main').inert=expanded;$('#navigation').inert=mobile&&!expanded;$('#navigation').classList.toggle('open',expanded);$('#menu-shade').hidden=!expanded;$('#menu-toggle').setAttribute('aria-expanded',String(expanded));document.body.style.overflow=expanded?'hidden':'';if(expanded)$('#navigation nav a.active')?.focus();else if(wasOpen&&returnFocus)$('#menu-toggle').focus();}
+$('#menu-toggle').onclick=()=>setMenu(!$('#navigation').classList.contains('open'));$('#menu-shade').onclick=()=>setMenu(false,true);document.addEventListener('keydown',e=>{if(e.key==='Escape')setMenu(false,true);});document.querySelectorAll('[data-nav]').forEach(a=>a.addEventListener('click',()=>setMenu(false)));
 async function requestModel(question,data){
   if(!navigator.onLine)throw Error('离线时请使用本地问答');
   if(modelBusy)throw Error('已有模型请求处理中，请稍后');modelBusy=true;const since=performance.now(),callMode=mode;let result,ok=false;$('#switch-mode').disabled=true;
   try{result=await online.post('chat',{question,data:modelSummary(data),consent:true});ok=true;return result.answer;}
   finally{try{if(mode!==callMode)throw Error('数据模式已变化');commit(addModelUsage(state,{status:ok?'success':'failed',usage:result?.usage,durationMs:performance.now()-since}));}catch(e){notify('调用记录未保存：'+e.message);}modelBusy=false;$('#switch-mode').disabled=chatBusy;}
 }
+decorateWorkspaceNavigation();
+setMenu(false);
 initialize();
 await online.start();

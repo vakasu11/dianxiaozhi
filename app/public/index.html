@@ -1,28 +1,19 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#0f766e"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="店小智"><meta name="apple-mobile-web-app-status-bar-style" content="default"><title>店小智 · 门店工作台</title><link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="icons/store.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="icons/store-192.png"><link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="import-workflow.css"><link rel="stylesheet" href="merchant.css"><script src="lib/echarts.min.js" defer></script><script src="lib/xlsx.full.min.js" defer></script><script type="module" src="app.mjs"></script><script type="module" src="pwa.mjs"></script></head>
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#3157c8"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="店小智"><meta name="apple-mobile-web-app-status-bar-style" content="default"><title>店小智 · 门店工作台</title><link rel="manifest" href="manifest.webmanifest"><link rel="icon" href="icons/store.svg" type="image/svg+xml"><link rel="apple-touch-icon" href="icons/store-192.png"><link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="import-workflow.css"><link rel="stylesheet" href="merchant.css"><link rel="stylesheet" href="workspace.css"><script src="lib/echarts.min.js" defer></script><script src="lib/xlsx.full.min.js" defer></script><script type="module" src="app.mjs"></script><script type="module" src="pwa.mjs"></script></head>
 <body>
   <a class="skip-link" href="#content">跳到工作区</a><button id="menu-shade" class="menu-shade" aria-label="关闭菜单" hidden></button>
   <aside class="sidebar" id="navigation">
     <a class="brand" href="#dashboard"><span class="logo"><img src="icons/store.svg" width="34" height="34" alt=""></span><span><strong>店小智</strong><small>门店经营工作台</small></span></a>
-    <nav aria-label="主导航">
-      <p class="nav-group">日常业务</p>
-      <a href="#dashboard" data-nav="dashboard"><span>◫</span>门店概况</a>
-      <a href="#products" data-nav="products"><span>▦</span>商品与库存</a>
-      <a href="#stocktake" data-nav="stocktake">库存盘点</a>
-      <a href="#activity" data-nav="activity"><span>≡</span>经营流水</a>
-      <a href="#imports" data-nav="imports"><span>⇧</span>数据导入</a>
-      <p class="nav-group">经营管理</p>
-      <a href="#operations" data-nav="operations"><span>✓</span>经营建议与复盘</a>
-      <a href="#orders" data-nav="orders">订单与商品分析</a><a href="#selection" data-nav="selection">选品与试销</a><a href="#marketing" data-nav="marketing">活动与文案</a><a href="#reports" data-nav="reports">经营报告</a>
-      <a href="#assistant" data-nav="assistant">经营问答</a>
-      <p class="nav-group">财务报表</p>
-      <a href="#profit" data-nav="profit"><span>↗</span>利润表</a>
-      <a href="#balance" data-nav="balance"><span>▤</span>资产负债表</a>
-      <a href="#cashflow" data-nav="cashflow"><span>⇄</span>现金流量表</a>
-      <p class="nav-group">设置与改进</p><a href="#feedback" data-nav="feedback">试用反馈</a>
-      <a href="#settings" data-nav="settings"><span>⚙</span>门店与数据</a>
-      <a href="#help" data-nav="help">手机使用与安装</a>
+    <nav class="workspace-primary-nav" aria-label="主导航">
+      <p class="nav-group">店里的几件事</p>
+      <a href="#dashboard" data-nav="dashboard"><span data-workspace-icon="home"></span><span>门店首页</span></a>
+      <a href="#products" data-nav="products"><span data-workspace-icon="box"></span><span>商品库存</span></a>
+      <a href="#activity" data-nav="activity"><span data-workspace-icon="list"></span><span>经营流水</span></a>
+      <a href="#operations" data-nav="operations"><span data-workspace-icon="chart"></span><span>经营帮手</span></a>
+      <a href="#profit" data-nav="profit"><span data-workspace-icon="wallet"></span><span>看懂账目</span></a>
+      <a href="#settings" data-nav="settings"><span data-workspace-icon="settings"></span><span>门店与数据</span></a>
+      <div class="nav-tip"><strong>账本在这台设备上</strong><p>换设备或清理浏览器前，记得在“门店与数据”里导出备份。</p></div>
     </nav>
     <div class="side-foot"><span id="network-status">本机工作台</span><small id="offline-status">检查离线资源</small><button class="text-button" id="install-app">安装说明</button><button class="text-button" id="update-app" hidden>更新应用</button></div>
   </aside>
@@ -30,9 +21,10 @@
     <header class="top"><button class="button subtle menu-toggle" id="menu-toggle" aria-controls="navigation" aria-expanded="false">菜单</button><div class="store-name"><div><strong id="store-title"></strong><small id="save-status">本机保存</small></div></div><div class="top-actions"><span id="mode-badge" class="badge"></span><button id="switch-mode" class="button subtle"></button></div></header>
     <div id="mode-notice" class="notice"></div>
     <section class="page-heading"><div><h1 id="page-title"></h1><p id="page-description"></p></div><div id="heading-actions"></div></section>
+    <div id="workspace-nav"></div>
     <form id="period-form" class="period"><span>统计期间</span><label>开始<input aria-label="开始日期" id="date-start" type="date" required></label><span class="muted">—</span><label>结束<input aria-label="结束日期" id="date-end" type="date" required></label><button class="button subtle">应用</button><button type="button" id="this-month" class="text-button">本月</button></form>
     <div id="content" tabindex="-1"></div>
-    <footer class="footer">店小智 v0.6.2<span>手机本地版 · 请定期导出备份</span></footer>
+    <footer class="footer">店小智 v0.6.2<span>本机保存 · 请定期导出备份</span></footer>
   </main>
   <dialog id="edit-dialog"><form id="edit-form"><div class="dialog-head"><h2 id="dialog-title"></h2><button type="button" id="dialog-close" aria-label="关闭">×</button></div><div id="dialog-fields"></div><p id="form-error" role="alert" class="error"></p><div class="dialog-actions"><button type="button" id="dialog-cancel" class="button subtle">取消</button><button class="button primary">保存记录</button></div></form></dialog>
   <dialog id="install-guide"><div class="dialog-head"><h2>安装店小智</h2></div><p>电脑端可在 Edge 或 Chrome 的浏览器菜单中选择“安装此站点为应用”。浏览器提供安装入口后，此处会出现“安装应用”按钮。</p><p>手机可通过支持的浏览器菜单添加到主屏幕。手机独立使用请打开已发布的 HTTPS 地址；127.0.0.1 地址只在运行本地服务的设备上使用。</p><p>先联网打开一次，离线资源就绪后可继续使用本机记录。安装不会同步其他设备的数据，重要记录仍需备份。</p><form method="dialog"><button class="button primary">知道了</button></form></dialog>
