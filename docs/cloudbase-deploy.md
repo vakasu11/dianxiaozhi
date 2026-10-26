@@ -24,6 +24,8 @@
 
 平台默认域名仅用于小范围测试，浏览器可能先显示访问确认页；部分默认域名请求存在附件下载限制。必须完成第 5 节检查后才能分享。若模块或 Service Worker 被下载/拦截，不能当作部署成功，应改用平台支持的网页托管入口或具备域名的 HTTPS 方案，再配置同域 API。自有域名及备案不是本次已经具备的条件。
 
+Service Worker 若发现首页缓存带有附件下载标记，将改走正常在线导航，不删除平台响应头或跳过确认页。该测试入口不保证离线重新打开；下载下来的单独 HTML 缺少模块和样式，不能作为完整应用使用。更新资源后的文件哈希一致仍需配合实际浏览器验收，不能单独作为可用结论。
+
 参考：[HTTP 云函数快速开始](https://docs.cloudbase.net/cloud-function/quickstart/httpfunc/nodejs)、[运行时](https://docs.cloudbase.net/cloud-function/runtime-support)、[启动文件](https://docs.cloudbase.net/cloud-function/develop/scf-bootstrap)、[默认域名规则](https://docs.cloudbase.net/service/alias)。
 
 ## 3. 云函数环境变量
